@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BolKhata – Your Voice-Powered Digital Ledger</title>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --card: #ffffff;
+      --primary: #1f6f54;
+      --primary-dark: #15523e;
+      --muted: #5b6470;
+      --danger: #b03a2e;
+      --border: #d9d4c9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans", Arial, sans-serif;
+      background: var(--bg);
+      color: #1c1f24;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.08);
+      padding: 28px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.5rem;
+      color: var(--primary-dark);
+    }
+    .subtitle {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #eeeae0;
+      font-size: 0.9rem;
+      margin-bottom: 18px;
+    }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9aa0a6;
+    }
+    .dot.connected { background: #2e7d32; }
+    .dot.error { background: var(--danger); }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      background: var(--primary);
+      color: #fff;
+      transition: background 0.15s ease;
+    }
+    button:hover { background: var(--primary-dark); }
+    button.secondary { background: #6b7280; }
+    button.danger { background: var(--danger); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    input[type="text"], input[type="url"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 0.95rem;
+    }
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 12px;
+      background: #fbfaf7;
+    }
+    .panel h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+      color: var(--primary-dark);
+    }
+    .value {
+      min-height: 22px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .mock-note {
+      font-size: 0.85rem;
+      color: var(--muted);
+      background: #f0ede4;
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+    audio { width: 100%; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>BolKhata – Your Voice-Powered Digital Ledger</h1>
+    <p class="mock-note">AI assistant: I record and speak ledger entries. Audio may be processed by the configured voice service.</p>
+    <p class="subtitle">Voice interface for kirana shop ledger commands.</p>
+
+    <div class="status">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">Disconnected</span>
+    </div>
+
+    <div class="row">
+      <div style="flex:1; min-width:220px;">
+        <label for="wsUrl">WebSocket URL</label>
+        <input id="wsUrl" type="url" value="ws://localhost:8010/voice/ws" />
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="connectBtn">Connect</button>
+      <button id="disconnectBtn" class="secondary" disabled>Disconnect</button>
+    </div>
+
+    <div class="panel">
+      <h3>Microphone (Live PCM)</h3>
+      <p class="mock-note">
+        Captures mono PCM signed 16-bit at 16 kHz via AudioContext and sends
+        1024-byte chunks. Requires live Gnani mode on the backend; mock mode
+        will not perform speech recognition.
+      </p>
+      <div class="row">
+        <button id="startMicBtn" disabled>Start Mic</button>
+        <button id="stopMicBtn" class="danger" disabled>Stop Mic</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>MOCK MODE – Test Commands</h3>
+      <p class="mock-note">
+        MOCK MODE: sends an explicit test command to the backend. No real
+        speech recognition is performed.
+      </p>
+      <div class="row">
+        <div style="flex:1; min-width:220px;">
+          <label for="mockText">Mock transcript</label>
+          <input id="mockText" type="text" value="Rahul ko 500 rupaye udhaar" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="sendMockBtn" disabled>Send Test Command</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Transcript</h3>
+      <div id="transcript" class="value">-</div>
+    </div>
+
+    <div class="panel">
+      <h3>Backend Response</h3>
+      <div id="responseText" class="value">-</div>
+      <div id="statusValue" class="value" style="color:var(--muted); font-size:0.9rem;"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Audio Playback</h3>
+      <audio id="audioPlayer" controls></audio>
+    </div>
+
+    <div class="panel">
+      <h3>Log</h3>
+      <div id="log" class="value" style="font-size:0.85rem; color:var(--muted);"></div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let audioContext = null;
+    let mediaStream = null;
+    let processor = null;
+    let sourceNode = null;
+    let isRecording = false;
+
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const startMicBtn = document.getElementById('startMicBtn');
+    const stopMicBtn = document.getElementById('stopMicBtn');
+    const sendMockBtn = document.getElementById('sendMockBtn');
+    const transcriptEl = document.getElementById('transcript');
+    const responseEl = document.getElementById('responseText');
+    const statusValueEl = document.getElementById('statusValue');
+    const audioPlayer = document.getElementById('audioPlayer');
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+      const time = new Date().toLocaleTimeString();
+      logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+    }
+
+    function setStatus(text, state) {
+      statusText.textContent = text;
+      statusDot.className = 'dot' + (state ? ' ' + state : '');
+    }
+
+    function setConnected(connected) {
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      startMicBtn.disabled = !connected;
+      stopMicBtn.disabled = true;
+      sendMockBtn.disabled = !connected;
+    }
+
+    function connect() {
+      const url = document.getElementById('wsUrl').value.trim();
+      if (!url) return;
+      try {
+        ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+      } catch (e) {
+        log('WebSocket creation failed: ' + e.message);
+        return;
+      }
+
+      ws.onopen = () => {
+        setStatus('Connected', 'connected');
+        setConnected(true);
+        log('WebSocket connected');
+      };
+
+      ws.onmessage = async (event) => {
+        if (typeof event.data === 'string') {
+          let payload;
+          try { payload = JSON.parse(event.data); } catch (e) { log('Invalid JSON: ' + event.data); return; }
+          if (payload.type === 'response') {
+            transcriptEl.textContent = payload.transcript || '-';
+            responseEl.textContent = payload.response_text || '-';
+            statusValueEl.textContent = 'Status: ' + (payload.status || '');
+          } else if (payload.type === 'error') {
+            responseEl.textContent = 'Error: ' + (payload.message || '');
+            log('Backend error: ' + (payload.message || ''));
+          } else {
+            log('Message: ' + event.data);
+          }
+        } else {
+          const blob = new Blob([event.data], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          audioPlayer.src = url;
+          audioPlayer.play().catch(() => {});
+          log('Received WAV audio (' + event.data.byteLength + ' bytes)');
+        }
+      };
+
+      ws.onerror = () => {
+        setStatus('Error', 'error');
+        log('WebSocket error');
+      };
+
+      ws.onclose = () => {
+        setStatus('Disconnected', '');
+        setConnected(false);
+        if (isRecording) stopMic();
+        log('WebSocket closed');
+        ws = null;
+      };
+    }
+
+    function disconnect() {
+      if (ws) ws.close();
+    }
+
+    async function startMic() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        log('Microphone access denied: ' + e.message);
+        return;
+      }
+      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      sourceNode = audioContext.createMediaStreamSource(mediaStream);
+      processor = audioContext.createScriptProcessor(1024, 1, 1);
+      processor.onaudioprocess = (e) => {
+        if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          let s = Math.max(-1, Math.min(1, input[i]));
+          pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        ws.send(pcm.buffer);
+      };
+      sourceNode.connect(processor);
+      processor.connect(audioContext.destination);
+      isRecording = true;
+      startMicBtn.disabled = true;
+      stopMicBtn.disabled = false;
+      log('Microphone started (16 kHz mono PCM)');
+    }
+
+    function stopMic() {
+      isRecording = false;
+      if (processor) { processor.disconnect(); processor = null; }
+      if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
+      if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+      if (audioContext) { audioContext.close(); audioContext = null; }
+      startMicBtn.disabled = !ws || ws.readyState !== WebSocket.OPEN;
+      stopMicBtn.disabled = true;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'commit' }));
+        log('Sent commit');
+      }
+    }
+
+    function sendMock() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const text = document.getElementById('mockText').value.trim();
+      if (!text) return;
+      ws.send(JSON.stringify({ type: 'mock_transcript', text }));
+      log('Sent mock transcript: ' + text);
+    }
+
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    startMicBtn.addEventListener('click', startMic);
+    stopMicBtn.addEventListener('click', stopMic);
+    sendMockBtn.addEventListener('click', sendMock);
+  </script>
+</body>
+</html>
