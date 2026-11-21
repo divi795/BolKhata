@@ -157,6 +157,8 @@ _CORRECTION_MARKERS: tuple[str, ...] = (
 )
 _DATE_PATTERNS: tuple[tuple[str, int], ...] = (
     (r"\bparso\b",       -2),
+    (r"\bparason\b",     -2),
+    (r"\bparson\b",      -2),
     (r"\bday\s+before\b",-2),
     (r"\byesterday\b",   -1),
     (r"\bkal\b",         -1),
@@ -166,7 +168,7 @@ _DATE_PATTERNS: tuple[tuple[str, int], ...] = (
 # Words stripped from name candidates (particles, verbs, currency, stop-words)
 _NAME_NOISE: frozenset[str] = frozenset([
     # Particles
-    "ne", "ko", "ka", "ki", "ke", "se", "mein", "aur",
+    "ne", "ko", "ka", "ki", "ke", "se", "mein", "aur", "nam", "naam", "vyakti",
     # Date words (already removed but kept as safety)
     "aaj", "kal", "parso",
     # Currency
@@ -207,6 +209,8 @@ _DIGIT_RE = re.compile(r"\b(\d{1,7}(?:[,\.]\d{1,3})?)\b")
 # Name extraction: ordered list of (pattern, name_group_index)
 # Applied to text with amount already replaced by _AMOUNT_TOKEN
 _NAME_PATTERNS: tuple[tuple[str, int], ...] = (
+    (r"^(.+?),",               1),   # "Ramesh, write 340 rupees as credit"
+    (r"^(.+?)\s+write\b",      1),   # "Ramesh write 340 rupees as credit"
     (r"^(.+?)\s+ne\b",             1),   # "Rahul ne ..."
     (r"^(.+?)\s+ko\b",             1),   # "Rahul ko ..."
     (r"^(.+?)\s+ka\b",             1),   # "Rahul ka ..."
@@ -736,6 +740,13 @@ def parse_command(text: str) -> ParsedCommand:
     )
 
 
+def _clause_has_amount(clause: str) -> bool:
+    return bool(re.search(r"\d", clause)) or any(
+        word in clause.lower()
+        for word in ("ek", "do", "teen", "char", "paanch", "chhe", " saat", "aath", "nau", "das", "sau", "hazaar")
+    )
+
+
 def parse_commands(text: str) -> list[ParsedCommand]:
     """Parse one or more ledger commands from a single transcript."""
     raw_text = text if text else ""
@@ -774,5 +785,16 @@ def parse_commands(text: str) -> list[ParsedCommand]:
         ]
     if not clauses:
         clauses = [processing_text.strip()]
+
+    # A comma may separate a customer name from the rest of one command,
+    # e.g. "Ramesh, write 340 rupees as credit."  Merge such fragments so
+    # they are not treated as separate transactions.
+    merged_clauses = []
+    for clause in clauses:
+        if merged_clauses and not _clause_has_amount(merged_clauses[-1]) and _clause_has_amount(clause):
+            merged_clauses[-1] = merged_clauses[-1] + " " + clause
+        else:
+            merged_clauses.append(clause)
+    clauses = merged_clauses
 
     return [parse_command(clause) for clause in clauses]

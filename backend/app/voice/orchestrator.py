@@ -24,6 +24,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import Customer, Transaction
+from app.voice.command_parser import _normalize
 from app.schemas.customer import CustomerCreate
 from app.schemas.transaction import (
     CreditTransactionCreate,
@@ -465,6 +466,11 @@ def _handle_correction(
             intent=intent_value,
         )
 
+    customer = db.query(Customer).filter(Customer.id == existing.customer_id).first()
+    customer_name = customer.name if customer is not None else f"Customer {existing.customer_id}"
+    old_amount = existing.amount
+    transaction_type = existing.type.value if hasattr(existing.type, "value") else str(existing.type)
+
     try:
         updated = update_transaction_amount(db, pending_transaction_id, cmd.amount)
     except HTTPException as exc:
@@ -478,7 +484,10 @@ def _handle_correction(
     customer = db.query(Customer).filter(Customer.id == updated.customer_id).first()
     return VoiceCommandResult(
         status=STATUS_SUCCESS,
-        response_text=f"Theek hai, amount {updated.amount:g} rupaye kar diya.",
+        response_text=(
+            f"Theek hai, {customer_name} ka {transaction_type} amount "
+            f"{old_amount:g} se {updated.amount:g} rupaye kar diya."
+        ),
         intent=intent_value,
         customer=_customer_payload(customer) if customer is not None else {"id": updated.customer_id},
         transaction=_transaction_payload(updated),

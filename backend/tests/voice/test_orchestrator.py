@@ -260,7 +260,7 @@ def test_spoken_correction_updates_immediately_preceding_transaction(db_session)
     assert corrected.intent == "CORRECTION"
     assert corrected.transaction["id"] == first.transaction["id"]
     assert corrected.transaction["amount"] == 430.0
-    assert "Theek hai, amount 430 rupaye kar diya." in corrected.response_text
+    assert "Theek hai, Rahul ka CREDIT amount 500 se 430 rupaye kar diya." in corrected.response_text
 
     stored = db_session.query(Transaction).all()
     assert len(stored) == 1

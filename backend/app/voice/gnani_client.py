@@ -26,6 +26,7 @@ Mock mode:
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
@@ -508,6 +509,46 @@ class GnaniTTSClient:
         audio_bytes = response.content
         logger.info("[GnaniTTS] Received %d bytes of audio", len(audio_bytes))
         return audio_bytes
+
+    async def synthesize_stream(self, text: str):
+        if not text or not text.strip():
+            return
+        if self._mock:
+            yield b"\x00" * (24000 * 2 * 100 // 1000)
+            return
+        payload = {
+            "text": text,
+            "voice": self._voice,
+            "model": settings.gnani_tts_model,
+            "language": self._language,
+            "speed": self._speed,
+            "audio_config": {
+                "sample_rate": 24000,
+                "num_channels": 1,
+                "sample_width": 2,
+                "encoding": "linear_pcm",
+                "container": "raw",
+            },
+        }
+        headers = {
+            "X-API-Key-ID": settings.gnani_api_key,
+            "Content-Type": "application/json",
+        }
+        try:
+            async with websockets.connect(settings.gnani_tts_ws_endpoint, additional_headers=headers) as ws:
+                await ws.send(json.dumps(payload))
+                async for raw in ws:
+                    msg = json.loads(raw)
+                    if msg.get("type") == "audio":
+                        chunk = base64.b64decode(msg.get("data", {}).get("audio", ""))
+                        if chunk:
+                            yield chunk
+                    elif msg.get("type") == "complete":
+                        break
+                    elif msg.get("type") == "error":
+                        raise GnaniAPIError(msg.get("message", "TTS error"))
+        except Exception as exc:
+            raise GnaniConnectionError(f"TTS streaming error: {type(exc).__name__}") from exc
 
     # ── Internals ────────────────────────────────────────────────────────
 

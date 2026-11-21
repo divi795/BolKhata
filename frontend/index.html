@@ -138,7 +138,7 @@
     <div class="row">
       <div style="flex:1; min-width:220px;">
         <label for="wsUrl">WebSocket URL</label>
-        <input id="wsUrl" type="url" value="ws://localhost:8010/voice/ws" />
+        <input id="wsUrl" type="url" value="ws://127.0.0.1:8000/voice/ws" />
       </div>
     </div>
 
@@ -201,8 +201,13 @@
 
   <script>
     let ws = null;
-    let audioContext = null;
+    let audioContext = null; // playback
+  let captureContext = null; // microphone
     let mediaStream = null;
+  let nextPlayTime = 0;
+  let responseReceivedAt = 0;
+  let firstChunkReceivedAt = null;
+  let playbackStartedAt = null;
     let processor = null;
     let sourceNode = null;
     let isRecording = false;
@@ -241,6 +246,10 @@
     function connect() {
       const url = document.getElementById('wsUrl').value.trim();
       if (!url) return;
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+      }
+      audioContext.resume().catch(() => {});
       try {
         ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
@@ -253,6 +262,9 @@
         setStatus('Connected', 'connected');
         setConnected(true);
         log('WebSocket connected');
+        if (audioContext && audioContext.state === 'suspended') {
+          audioContext.resume().catch(() => {});
+        }
       };
 
       ws.onmessage = async (event) => {
@@ -263,6 +275,10 @@
             transcriptEl.textContent = payload.transcript || '-';
             responseEl.textContent = payload.response_text || '-';
             statusValueEl.textContent = 'Status: ' + (payload.status || '');
+            nextPlayTime = audioContext ? audioContext.currentTime : 0;
+            responseReceivedAt = performance.now();
+            firstChunkReceivedAt = null;
+            playbackStartedAt = null;
           } else if (payload.type === 'error') {
             responseEl.textContent = 'Error: ' + (payload.message || '');
             log('Backend error: ' + (payload.message || ''));
@@ -270,11 +286,42 @@
             log('Message: ' + event.data);
           }
         } else {
-          const blob = new Blob([event.data], { type: 'audio/wav' });
-          const url = URL.createObjectURL(blob);
-          audioPlayer.src = url;
-          audioPlayer.play().catch(() => {});
-          log('Received WAV audio (' + event.data.byteLength + ' bytes)');
+          if (firstChunkReceivedAt === null) {
+            log('First binary PCM chunk received (' + event.data.byteLength + ' bytes)');
+          }
+          try {
+            if (!audioContext) {
+              audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+              nextPlayTime = audioContext.currentTime;
+            }
+            if (audioContext.state === 'suspended') {
+              audioContext.resume().catch(() => {});
+            }
+            if (firstChunkReceivedAt === null) {
+              firstChunkReceivedAt = performance.now();
+            }
+            const pcm = new Int16Array(event.data);
+            const buffer = audioContext.createBuffer(1, pcm.length, 24000);
+            const channel = buffer.getChannelData(0);
+            for (let i = 0; i < pcm.length; i++) {
+              channel[i] = pcm[i] / 32768;
+            }
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            const startAt = Math.max(nextPlayTime, audioContext.currentTime);
+            source.start(startAt);
+            log('PCM playback scheduled at ' + startAt.toFixed(3));
+            if (playbackStartedAt === null) {
+              playbackStartedAt = performance.now();
+              log('First audio playback started: chunk_to_playback_ms=' + (playbackStartedAt - firstChunkReceivedAt).toFixed(1) + ' response_to_playback_ms=' + (playbackStartedAt - responseReceivedAt).toFixed(1));
+            }
+            nextPlayTime = startAt + buffer.duration;
+            log('Received PCM audio (' + event.data.byteLength + ' bytes)');
+          } catch (e) {
+            log('PCM playback exception: ' + e.message);
+            log('Audio playback error: ' + e.message);
+          }
         }
       };
 
@@ -304,9 +351,9 @@
         log('Microphone access denied: ' + e.message);
         return;
       }
-      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      sourceNode = audioContext.createMediaStreamSource(mediaStream);
-      processor = audioContext.createScriptProcessor(1024, 1, 1);
+      captureContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      sourceNode = captureContext.createMediaStreamSource(mediaStream);
+      processor = captureContext.createScriptProcessor(1024, 1, 1);
       processor.onaudioprocess = (e) => {
         if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
         const input = e.inputBuffer.getChannelData(0);
@@ -318,7 +365,7 @@
         ws.send(pcm.buffer);
       };
       sourceNode.connect(processor);
-      processor.connect(audioContext.destination);
+      processor.connect(captureContext.destination);
       isRecording = true;
       startMicBtn.disabled = true;
       stopMicBtn.disabled = false;
@@ -330,7 +377,7 @@
       if (processor) { processor.disconnect(); processor = null; }
       if (sourceNode) { sourceNode.disconnect(); sourceNode = null; }
       if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
-      if (audioContext) { audioContext.close(); audioContext = null; }
+      if (captureContext) { captureContext.close(); captureContext = null; }
       startMicBtn.disabled = !ws || ws.readyState !== WebSocket.OPEN;
       stopMicBtn.disabled = true;
       if (ws && ws.readyState === WebSocket.OPEN) {
